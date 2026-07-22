@@ -82,3 +82,23 @@ available from more than one device/phone, connect a free Firebase project:
 **Note:** product photos and the shop logo are kept only on the device (not uploaded to Firestore) to keep cloud
 sync fast and reliable — everything else (products, stock counts, sales, customers, suppliers, purchases, expenses,
 settings) syncs.
+
+## Update — Account-based access + PDF download fix (this delivery)
+
+1. **Accounts instead of demo passwords**: the login screen now has "Sign In" and
+   "Create Account" tabs. Creating an account requires a Name, a Password (with a
+   show/hide eye toggle), a Confirm Password, and an **Access Code** — the code is
+   `Error404`. Get this wrong and the account isn't created.
+2. **Private data per account**: each account has its own completely separate shop
+   database (products, sales, customers, suppliers, purchases, expenses, etc). Signing
+   in as one account never shows another account's data. New accounts start empty —
+   there's no shared demo data anymore (you can still load sample data manually from
+   Settings → Load Sample Data, for testing).
+3. **Fixed: PDF downloads looking broken on laptop/PC**: reports, receipts, and customer
+   statements previously rendered off-screen for the PDF export, and the capture was
+   affected by the page's scroll position. On tall/wide desktop screens (where the page
+   is often scrolled), this shifted/cropped the exported PDF. Phones rarely trigger
+   this because the app doesn't usually stay scrolled the same way. The export now
+   resets scroll to the top-left and tells the PDF renderer to ignore scroll entirely,
+   so downloads look the same and are no longer cut off, regardless of device or how
+   far the page had been scrolled.

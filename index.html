@@ -144,6 +144,15 @@ input,select,textarea{font-family:inherit;}
 .btn-icon{padding:8px;border-radius:7px;background:transparent;border:1.5px solid var(--line);color:var(--ink);}
 .login-hint{margin-top:16px;font-size:11.5px;color:var(--ink-soft);text-align:center;line-height:1.6;}
 .login-error{background:#FBE7E4;color:var(--danger);border:1px solid #EFC3BC;padding:9px 12px;border-radius:7px;font-size:12.5px;margin-bottom:14px;display:none;}
+.pass-field{position:relative;}
+.pass-field input{padding-right:42px;}
+.pass-toggle{
+  position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none;
+  cursor:pointer; font-size:16px; line-height:1; padding:6px; color:var(--ink-soft);
+}
+.pass-toggle:hover{color:var(--ink);}
+.auth-panel{display:none;}
+.auth-panel.active{display:block;}
 
 /* ============================================================
    APP SHELL
@@ -446,22 +455,53 @@ select.filter,input.filter,input[type=date].filter{padding:9px 12px; border:1.5p
     <div class="login-form">
       <div id="loginError" class="login-error"></div>
       <div class="role-toggle">
-        <button type="button" class="role-btn active" data-role="admin" onclick="setLoginRole('admin')">Admin</button>
-        <button type="button" class="role-btn" data-role="staff" onclick="setLoginRole('staff')">Staff</button>
+        <button type="button" class="role-btn active" data-tab="signin" onclick="setAuthTab('signin')">Sign In</button>
+        <button type="button" class="role-btn" data-tab="signup" onclick="setAuthTab('signup')">Create Account</button>
       </div>
-      <div class="field">
-        <label>Username</label>
-        <input id="loginUser" type="text" placeholder="Enter username" autocomplete="username">
+
+      <div id="authPanelSignin" class="auth-panel active">
+        <div class="field">
+          <label>Name</label>
+          <input id="loginUser" type="text" placeholder="Enter your name" autocomplete="username">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <div class="pass-field">
+            <input id="loginPass" type="password" placeholder="Enter password" autocomplete="current-password">
+            <button type="button" class="pass-toggle" onclick="togglePassVisibility('loginPass', this)">👁</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="doLogin()">Sign In</button>
       </div>
-      <div class="field">
-        <label>Password</label>
-        <input id="loginPass" type="password" placeholder="Enter password" autocomplete="current-password">
-      </div>
-      <button class="btn btn-primary btn-block" onclick="doLogin()">Sign In</button>
-      <div class="login-hint" id="loginHintBox" style="position:relative;padding-right:22px;">
-        <button onclick="dismissLoginHint()" style="position:absolute;top:0;right:0;background:none;border:none;font-size:13px;color:var(--ink-soft);cursor:pointer;line-height:1;">✕</button>
-        Default admin — username <b>admin</b> · password <b>admin123</b><br>Default staff — username <b>staff</b> · password <b>staff123</b><br>
-        <span style="opacity:.8;">Change these in Settings once you sign in — this note hides itself after first login.</span>
+
+      <div id="authPanelSignup" class="auth-panel">
+        <div class="field">
+          <label>Name</label>
+          <input id="signupName" type="text" placeholder="Choose a name" autocomplete="username">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <div class="pass-field">
+            <input id="signupPass" type="password" placeholder="Choose a password" autocomplete="new-password">
+            <button type="button" class="pass-toggle" onclick="togglePassVisibility('signupPass', this)">👁</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Confirm Password</label>
+          <div class="pass-field">
+            <input id="signupPass2" type="password" placeholder="Re-enter password" autocomplete="new-password">
+            <button type="button" class="pass-toggle" onclick="togglePassVisibility('signupPass2', this)">👁</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Access Code</label>
+          <div class="pass-field">
+            <input id="signupCode" type="password" placeholder="Enter access code" autocomplete="off">
+            <button type="button" class="pass-toggle" onclick="togglePassVisibility('signupCode', this)">👁</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="doCreateAccount()">Create Account</button>
+        <div class="login-hint">Your own account gets its own private shop data — no one else can see it.</div>
       </div>
     </div>
     <div style="text-align:center;padding:14px 0 4px;font-size:11px;color:#8FA0C2;letter-spacing:.2px;">Powered by <b style="color:#F5D547;">Omlin Consultancy</b></div>
@@ -878,15 +918,13 @@ select.filter,input.filter,input[type=date].filter{padding:9px 12px; border:1.5p
 /* ================================================================
    DATA LAYER — localStorage backed "DB"
    ================================================================ */
-const DB_KEY = 'dukabook_db_v1';
+const DB_KEY_PREFIX = 'dukabook_db_v1__';
+let DB_KEY = null; // set once the signed-in account is known — see setActiveAccount()
 let DB = null;
 
 function defaultDB(){
   return {
-    users:[
-      {id:uid(),username:'admin',password:'admin123',role:'Admin',created:todayStr()},
-      {id:uid(),username:'staff',password:'staff123',role:'Staff',created:todayStr()}
-    ],
+    users:[],
     settings:{
       shopName:'My Shop', address:'', phone:'', currency:'KES', tax:0,
       receiptFooter:'Thank you for shopping with us!', logo:'', theme:'light'
@@ -910,7 +948,8 @@ function loadDB(){
   // migrate missing keys
   const def = defaultDB();
   Object.keys(def).forEach(k=>{ if(!(k in DB)) DB[k]=def[k]; });
-  if(isFresh){ seedMockData(); }
+  // Every account starts with its own clean, empty shop — no shared demo/mock
+  // data is seeded in, since each account's data must stay private to them.
   saveDB();
 }
 
@@ -1200,40 +1239,113 @@ function money(n){ n = Number(n||0); return DB.settings.currency + ' ' + n.toLoc
 function logActivity(action){ DB.activity.unshift({time:todayStr(), user:currentUser?currentUser.username:'system', action}); if(DB.activity.length>200) DB.activity.pop(); }
 
 /* ================================================================
-   AUTH
+   AUTH — account registry (one account = one private, isolated shop)
+   ------------------------------------------------------------------
+   Every person who wants to use My Shop creates their own account with
+   a name + password, gated by a shared access code. Each account gets
+   its own DB stored under its own localStorage key (see DB_KEY_PREFIX
+   above), so signing in as one account never shows another account's
+   products, sales, customers, etc.
    ================================================================ */
+const ACCOUNTS_KEY = 'myshop_accounts_v1';
+const SIGNUP_ACCESS_CODE = 'Error404';
+let accounts = [];
+let currentAccount = null;
 let currentUser = null;
-let loginRole = 'admin';
-function setLoginRole(r){ loginRole=r; document.querySelectorAll('.role-btn').forEach(b=>b.classList.toggle('active', b.dataset.role===r)); }
-const CREDS_HINT_KEY = 'dukabook_hide_creds_hint';
-function dismissLoginHint(){ localStorage.setItem(CREDS_HINT_KEY,'1'); const el=document.getElementById('loginHintBox'); if(el) el.style.display='none'; }
-function applyLoginHintVisibility(){ const el=document.getElementById('loginHintBox'); if(!el) return; if(localStorage.getItem(CREDS_HINT_KEY)==='1') el.style.display='none'; }
+
+function loadAccounts(){
+  try{ accounts = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)) || []; }catch(e){ accounts = []; }
+}
+function saveAccounts(){ localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts)); }
+// Light obfuscation so passwords aren't sitting in localStorage in plain
+// text. This is a client-only app with no server, so it can't provide real
+// server-side security — this just avoids showing the raw password in
+// devtools/localStorage at a glance.
+function encodePass(pw){ return btoa(unescape(encodeURIComponent(pw))); }
+function findAccountByName(name){ return accounts.find(a=>a.name.toLowerCase()===name.toLowerCase()); }
+
+function setAuthTab(tab){
+  document.querySelectorAll('.role-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.getElementById('authPanelSignin').classList.toggle('active', tab==='signin');
+  document.getElementById('authPanelSignup').classList.toggle('active', tab==='signup');
+  document.getElementById('loginError').style.display='none';
+}
+function togglePassVisibility(inputId, btn){
+  const input = document.getElementById(inputId);
+  const showing = input.type==='text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? '👁' : '🙈';
+}
+
 function doLogin(){
-  const u = document.getElementById('loginUser').value.trim();
-  const p = document.getElementById('loginPass').value;
+  const name = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
   const errBox = document.getElementById('loginError');
-  const user = DB.users.find(x=>x.username.toLowerCase()===u.toLowerCase() && x.password===p);
-  if(!user){ errBox.style.display='block'; errBox.textContent='Invalid username or password.'; return; }
-  currentUser = user;
+  const account = findAccountByName(name);
+  if(!account || account.passHash !== encodePass(pass)){
+    errBox.style.display='block'; errBox.textContent='Invalid name or password.'; return;
+  }
   errBox.style.display='none';
-  dismissLoginHint();
+  setActiveAccount(account);
+  loadDB();
+  // The account owner is always the Admin of their own shop.
+  currentUser = DB.users.find(u=>u.role==='Admin') || DB.users[0];
+  if(!currentUser){
+    currentUser = {id:uid(), username:account.name, role:'Admin', created:todayStr()};
+    DB.users.push(currentUser);
+  }
+  enterApp();
+}
+function doCreateAccount(){
+  const name = document.getElementById('signupName').value.trim();
+  const pass = document.getElementById('signupPass').value;
+  const pass2 = document.getElementById('signupPass2').value;
+  const code = document.getElementById('signupCode').value;
+  const errBox = document.getElementById('loginError');
+  errBox.style.display='none';
+  if(!name || !pass){ errBox.style.display='block'; errBox.textContent='Name and password are required.'; return; }
+  if(pass.length<4){ errBox.style.display='block'; errBox.textContent='Password must be at least 4 characters.'; return; }
+  if(pass!==pass2){ errBox.style.display='block'; errBox.textContent='Passwords do not match.'; return; }
+  if(code!==SIGNUP_ACCESS_CODE){ errBox.style.display='block'; errBox.textContent='Incorrect access code.'; return; }
+  if(findAccountByName(name)){ errBox.style.display='block'; errBox.textContent='That name is already taken.'; return; }
+  const account = {id:uid(), name, passHash:encodePass(pass), created:todayStr()};
+  accounts.push(account); saveAccounts();
+  setActiveAccount(account);
+  loadDB();
+  currentUser = {id:uid(), username:account.name, role:'Admin', created:todayStr()};
+  DB.users.push(currentUser);
+  document.getElementById('signupName').value=''; document.getElementById('signupPass').value='';
+  document.getElementById('signupPass2').value=''; document.getElementById('signupCode').value='';
+  enterApp(true);
+}
+function setActiveAccount(account){
+  currentAccount = account;
+  DB_KEY = DB_KEY_PREFIX + account.id;
+}
+function enterApp(isNewAccount){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').classList.add('show');
-  document.getElementById('userNameTop').textContent = user.username;
-  document.getElementById('sideUserName').textContent = user.username + ' ('+user.role+')';
-  document.getElementById('userAvatar').textContent = user.username[0].toUpperCase();
+  document.getElementById('userNameTop').textContent = currentUser.username;
+  document.getElementById('sideUserName').textContent = currentUser.username + ' ('+currentUser.role+')';
+  document.getElementById('userAvatar').textContent = currentUser.username[0].toUpperCase();
+  if(DB.settings.theme==='dark') document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
   buildNav();
   navigate('dashboard');
   refreshAllStatics();
-  logActivity('Logged in');
+  logActivity(isNewAccount ? 'Account created and logged in' : 'Logged in');
   saveDB();
+  if(loadCloudConfig()) initCloudSync(false);
+  updateSyncBadge();
 }
 function logout(){
   logActivity('Logged out'); saveDB();
-  currentUser=null;
+  currentUser=null; currentAccount=null; DB=null; DB_KEY=null;
+  document.documentElement.classList.remove('dark');
   document.getElementById('app').classList.remove('show');
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('loginUser').value=''; document.getElementById('loginPass').value='';
+  setAuthTab('signin');
 }
 
 /* ================================================================
@@ -1412,9 +1524,17 @@ function getFilteredProducts(){
 }
 function fillCategorySelects(){
   const opts = DB.categories.map(c=>'<option value="'+c+'">'+c+'</option>').join('');
-  document.querySelectorAll('.cat-select-target').forEach(sel=>{ sel.innerHTML = opts; });
+  document.querySelectorAll('.cat-select-target').forEach(sel=>{
+    const prev = sel.value;
+    sel.innerHTML = opts;
+    if(prev && DB.categories.includes(prev)) sel.value = prev;
+  });
   const filterSel = document.getElementById('prodCatFilter');
-  if(filterSel) filterSel.innerHTML = '<option value="">All Categories</option>'+opts;
+  if(filterSel){
+    const prev = filterSel.value;
+    filterSel.innerHTML = '<option value="">All Categories</option>'+opts;
+    if(prev && DB.categories.includes(prev)) filterSel.value = prev;
+  }
 }
 function renderProducts(){
   fillCategorySelects();
@@ -1732,15 +1852,30 @@ function pdfFooterHtml(){
 function downloadPdfDoc(innerHtml, filename){
   const host = document.getElementById('pdfRenderHost');
   host.innerHTML = `<div class="pdf-doc">${innerHtml}</div>`;
+  // The render host sits off-screen at left:-9999px so the user never sees
+  // it. html2canvas measures it using the page's current scroll position,
+  // so on a tall/wide desktop layout — where the page is often scrolled
+  // down or the dashboard is wider than the viewport — that scroll offset
+  // gets baked into the capture and the PDF comes out shifted/cropped on
+  // the left. Phones rarely have that scroll offset, which is why it only
+  // showed up on laptop/PC downloads. Forcing the scroll position to
+  // (0,0) for the capture, and telling html2canvas to ignore scroll
+  // entirely, makes every download render the same way regardless of
+  // screen size or how far the page had been scrolled.
+  const savedScrollX = window.scrollX, savedScrollY = window.scrollY;
+  window.scrollTo(0, 0);
   const opt = {
     margin:0,
     filename: filename+'.pdf',
     image:{ type:'jpeg', quality:0.98 },
-    html2canvas:{ scale:2, useCORS:true, backgroundColor:'#FFFDF8', width:794, windowWidth:794 },
+    html2canvas:{ scale:2, useCORS:true, backgroundColor:'#FFFDF8', width:794, windowWidth:794, x:0, y:0, scrollX:0, scrollY:0 },
     jsPDF:{ unit:'pt', format:'a4', orientation:'portrait' },
     pagebreak:{ mode:['avoid-all','css','legacy'] }
   };
-  html2pdf().set(opt).from(host.firstElementChild).save().then(()=>{ host.innerHTML=''; });
+  html2pdf().set(opt).from(host.firstElementChild).save().then(()=>{
+    host.innerHTML='';
+    window.scrollTo(savedScrollX, savedScrollY);
+  });
 }
 function showReceipt(sale){
   const s = DB.settings;
@@ -2045,7 +2180,7 @@ function renderUsers(){
   const uList = sortByKey(DB.users, 'users', {username:u=>u.username, role:u=>u.role, created:u=>u.created});
   document.getElementById('usersBody').innerHTML = uList.map(u=>
     '<tr><td><b>'+u.username+'</b></td><td><span class="badge '+(u.role==='Admin'?'badge-gold':'badge-navy')+'">'+u.role+'</span></td><td>'+fmtDate(u.created)+'</td>'+
-    '<td><button class="btn btn-outline btn-sm" onclick="resetPassword(\''+u.id+'\')">Reset Pwd</button> '+(u.username!=='admin'?'<button class="btn btn-danger btn-sm" onclick="deleteUser(\''+u.id+'\')">Del</button>':'')+'</td></tr>'
+    '<td><button class="btn btn-outline btn-sm" onclick="resetPassword(\''+u.id+'\')">Reset Pwd</button> '+(u.id!==currentUser.id?'<button class="btn btn-danger btn-sm" onclick="deleteUser(\''+u.id+'\')">Del</button>':'')+'</td></tr>'
   ).join('');
   paintSortArrows('users', ['username','role','created'], 'srt_users_');
   const aList = sortByKey(DB.activity.slice(0,50), 'activity', {time:a=>a.time, user:a=>a.user, action:a=>a.action});
@@ -2469,12 +2604,16 @@ function exportRowsCSV(headers, rows, filename){
    INIT
    ================================================================ */
 window.addEventListener('DOMContentLoaded', ()=>{
-  loadDB();
-  if(DB.settings.theme==='dark') document.documentElement.classList.add('dark');
-  applyLoginHintVisibility();
+  // Nothing shop-specific loads until someone signs in or creates an
+  // account — each account's data is only fetched once we know which
+  // account is active (see setActiveAccount / doLogin / doCreateAccount).
+  loadAccounts();
   document.getElementById('loginUser').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   document.getElementById('loginPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
-  if(loadCloudConfig()) initCloudSync(false);
+  document.getElementById('signupName').addEventListener('keydown', e=>{ if(e.key==='Enter') doCreateAccount(); });
+  document.getElementById('signupPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doCreateAccount(); });
+  document.getElementById('signupPass2').addEventListener('keydown', e=>{ if(e.key==='Enter') doCreateAccount(); });
+  document.getElementById('signupCode').addEventListener('keydown', e=>{ if(e.key==='Enter') doCreateAccount(); });
   updateSyncBadge();
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Service worker registration failed', err));
